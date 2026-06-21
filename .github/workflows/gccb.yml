@@ -1,4 +1,4 @@
-rname: Build Pure Kernel (gcc 4.9)
+name: Build Pure Kernel (gcc 4.9)
 
 on:
   workflow_dispatch:
