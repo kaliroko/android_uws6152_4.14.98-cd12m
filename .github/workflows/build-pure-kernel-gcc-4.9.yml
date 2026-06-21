@@ -64,8 +64,8 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-android-
        
           # ===== 1. 配置 & 编译内核本体 =====
-          make cd12m_defconfig
           chmod +x scripts/* scripts/kconfig/*
+          make cd12m_defconfig
           scripts/config --disable CONFIG_APPENDED_DTB
           scripts/config --disable CONFIG_EFI
           scripts/config --disable CONFIG_EFI_STUB
