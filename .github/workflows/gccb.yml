@@ -1,0 +1,121 @@
+name: Build Pure Kernel (gcc 4.9)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          submodules: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y git make bc bison flex libssl-dev build-essential \
+                              libyaml-dev
+
+      - name: Download and setup GCC 4.9 toolchain
+        run: |
+          mkdir -p $HOME/toolchains
+          cd $HOME/toolchains
+          git clone --depth=1 --branch=W20.13.3 \
+            --filter=blob:none --no-checkout \
+            https://github.com/deadman96385/jingpad_android_bsp.git toolchain-tmp
+          cd toolchain-tmp
+          git sparse-checkout init --cone
+          git sparse-checkout set toolchain/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+          git checkout
+          mv toolchain/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
+             ../aarch64-linux-android-4.9
+          cd ..
+          rm -rf toolchain-tmp
+          chmod -R a+x $HOME/toolchains/aarch64-linux-android-4.9/bin
+          echo "$HOME/toolchains/aarch64-linux-android-4.9/bin" >> $GITHUB_PATH
+
+      - name: Verify toolchain
+        run: |
+          aarch64-linux-android-gcc --version
+          aarch64-linux-android-gcc -fstack-protector-strong -c -x c /dev/null -o /dev/null
+
+     
+      - name: Build kernel
+        run: |
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-android-
+
+          # ===== 1. 配置 & 编译内核本体 =====
+          chmod +x scripts/* scripts/kconfig/*
+          make cd12m_defconfig
+         
+          KCFLAGS="-Wno-error"
+          make -j$(nproc) KCFLAGS="$KCFLAGS" 2>&1 | tee build.log
+
+         
+
+      - name: Locate pure kernel image
+        id: find_kernel
+        continue-on-error: false
+        run: |
+          if [ -f arch/arm64/boot/Image.gz ]; then
+            echo "kernel_path=arch/arm64/boot/Image.gz" >> $GITHUB_OUTPUT
+          elif [ -f arch/arm64/boot/Image ]; then
+            echo "kernel_path=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
+          else
+            echo "No kernel image found!"
+            exit 1
+          fi
+
+      - name: Send build.log if kernel image not found
+        if: steps.find_kernel.outcome == 'failure'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_TO }}
+        run: |
+          curl -s -F document=@build.log \
+            -F "caption=❌ Build failed: kernel image not found. See build.log for details." \
+            "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument?chat_id=${CHAT_ID}"
+          exit 1
+
+     
+      - name: gzip vmlinux
+        run: gzip -9 vmlinux
+
+      - name: Package all artifacts for Telegram (exclude vmlinux.gz)
+        run: |
+          mkdir -p telegram_artifacts
+          cp ${{ steps.find_kernel.outputs.kernel_path }} telegram_artifacts/
+          cp modules.tar.gz modules.zip telegram_artifacts/ 2>/dev/null || true
+          cp System.map Module.symvers build.log telegram_artifacts/ 2>/dev/null || true
+          cp AnyKernel3.zip telegram_artifacts/
+          cd telegram_artifacts
+          zip -9 ../all_artifacts.zip *
+          cd ..
+          echo "Created all_artifacts.zip (without vmlinux.gz)"
+          ls -lh all_artifacts.zip
+
+      - name: Create Release and Upload Artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: build-${{ github.run_id }}
+          name: Build - ${{ github.sha }} (${{ github.ref_name }})
+          files: |
+            ${{ steps.find_kernel.outputs.kernel_path }}
+            modules.tar.gz
+            modules.zip
+            AnyKernel3.zip
+            build.log
+            System.map
+            Module.symvers
+            vmlinux.gz
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
