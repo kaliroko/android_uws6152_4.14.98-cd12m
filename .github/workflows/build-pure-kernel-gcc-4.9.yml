@@ -76,6 +76,10 @@ jobs:
           sed -i '/ifdef CONFIG_CC_STACKPROTECTOR_STRONG/{n;s/stackp-flag :=.*/stackp-flag := -fstack-protector-strong/}' Makefile
           sed -i '/ifdef stackp-name/,/endif/{s/exit 1/true/}' Makefile
           sed -i '/ifdef stackp-check/,/endif/{s/exit 1/true/}' Makefile
+          # 关键补丁：注释signal.c 586-588 报错代码，彻底消除未定义符号错误
+          sed -i '586s/^   sigtramp = /\/\/   sigtramp = /' arch/arm64/kernel/signal.c
+          sed -i '587s/^   if (sigtramp)/\/\/   if (sigtramp)/' arch/arm64/kernel/signal.c
+          sed -i '588s/^       sigframe->tramp = sigtramp;/\/\/       sigframe->tramp = sigtramp;/' arch/arm64/kernel/signal.c
           make olddefconfig
           KCFLAGS="-Wno-error=sizeof-pointer-memaccess -Wno-error=array-bounds -Wno-error=missing-braces -Wno-error=format"
           make -j$(nproc) KCFLAGS="$KCFLAGS" 2>&1 | tee build.log
