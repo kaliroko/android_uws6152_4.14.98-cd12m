@@ -1,0 +1,41 @@
+name: Apply ReSukiSU
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to apply ReSukiSU'
+        required: true
+        default: 'android-9.0'
+
+jobs:
+  apply-sukisu:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+          fetch-depth: 0   # 关键：获取完整历史，使所有分支可用
+
+      - name: Ensure main branch is available (optional safety)
+        run: git fetch origin main
+
+      - name: Run ReSukiSU integration script
+        run: |
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Apply ReSukiSU modifications [skip ci]"
+          git push origin ${{ github.event.inputs.branch }}
