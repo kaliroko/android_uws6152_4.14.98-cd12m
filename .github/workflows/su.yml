@@ -21,8 +21,17 @@ jobs:
           ref: ${{ github.event.inputs.branch }}
           fetch-depth: 0   # 关键：获取完整历史，使所有分支可用
 
-      - name: Ensure main branch is available (optional safety)
-        run: git fetch origin main
+      - name: Ensure target branch is available (optional safety)
+        run: |
+          TARGET="${{ github.event.inputs.branch }}"
+          echo "Requested branch: $TARGET"
+          # 如果 origin 上存在该分支则 fetch 并切换，否则跳过（避免因不存在 main 而失败）
+          if git ls-remote --exit-code --heads origin "$TARGET" >/dev/null 2>&1; then
+            git fetch origin "$TARGET"
+            git checkout "$TARGET"
+          else
+            echo "Remote branch '$TARGET' not found; skipping fetch."
+          fi
 
       - name: Run ReSukiSU integration script
         run: |
