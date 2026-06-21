@@ -1,4 +1,4 @@
-name: Build Pure Kernel (gcc 4.9)
+rname: Build Pure Kernel (gcc 4.9)
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
-          submodules: true
+          submodules: false
 
       - name: Install dependencies
         run: |
