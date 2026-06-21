@@ -60,8 +60,6 @@ jobs:
           # ===== 1. 配置 & 编译内核本体 =====
           chmod +x scripts/* scripts/kconfig/*
           make cd12m_defconfig
-          
-          
           make -j$(nproc) Image
 
           # ===== 2. 编译内核内部模块 =====
