@@ -45,12 +45,6 @@ jobs:
           aarch64-linux-android-gcc --version
           aarch64-linux-android-gcc -fstack-protector-strong -c -x c /dev/null -o /dev/null
 
-      - name: Test Telegram connection (text message)
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_TO }}" \
-            -d "text=🔔 GitHub Actions: Build started at $(date -u '+%Y-%m-%d %H:%M:%S UTC')." | tee /dev/stderr
-          echo "If the message above shows 'ok:true', your bot can send messages to the chat."
 
       #- name: Unshallow KernelSU submodule
       #  run: |
@@ -66,23 +60,9 @@ jobs:
           # ===== 1. 配置 & 编译内核本体 =====
           chmod +x scripts/* scripts/kconfig/*
           make cd12m_defconfig
-          scripts/config --disable CONFIG_APPENDED_DTB
-          # scripts/config --disable CONFIG_EFI
-          # 强制开启VDSO，修复sigtramp未定义
-          scripts/config --enable CONFIG_VDSO
-          scripts/config --enable CONFIG_COMPAT_VDSO
-          sed -i '/yamltree\.o/d' scripts/dtc/Makefile
-          sed -i 's/dt_to_yaml(/\/\/ dt_to_yaml(/g' scripts/dtc/dtc.c
-          sed -i '/ifdef CONFIG_CC_STACKPROTECTOR_STRONG/{n;s/stackp-flag :=.*/stackp-flag := -fstack-protector-strong/}' Makefile
-          sed -i '/ifdef stackp-name/,/endif/{s/exit 1/true/}' Makefile
-          sed -i '/ifdef stackp-check/,/endif/{s/exit 1/true/}' Makefile
-          # 关键补丁：注释signal.c 586-588 报错代码，彻底消除未定义符号错误
-          sed -i '586s/^   sigtramp = /\/\/   sigtramp = /' arch/arm64/kernel/signal.c
-          sed -i '587s/^   if (sigtramp)/\/\/   if (sigtramp)/' arch/arm64/kernel/signal.c
-          sed -i '588s/^       sigframe->tramp = sigtramp;/\/\/       sigframe->tramp = sigtramp;/' arch/arm64/kernel/signal.c
-          make olddefconfig
-          KCFLAGS="-Wno-error=sizeof-pointer-memaccess -Wno-error=array-bounds -Wno-error=missing-braces -Wno-error=format"
-          make -j$(nproc) KCFLAGS="$KCFLAGS" 2>&1 | tee build.log
+          
+          
+          make -j$(nproc) Image
 
           # ===== 2. 编译内核内部模块 =====
           make modules 2>&1 | tee -a build.log
