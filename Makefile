@@ -2,7 +2,7 @@
 VERSION = 4
 PATCHLEVEL = 14
 SUBLEVEL = 98
-EXTRAVERSION =-KawaiiSoraNeko
+EXTRAVERSION =
 NAME = Petit Gorille
 
 # *DOCUMENTATION*
@@ -671,14 +671,6 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, format-truncation)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, format-overflow)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, int-in-bool-context)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, attribute-alias)
-# lse disabled 
-KBUILD_CFLAGS  += $(call cc-option,-mno-outline-atomics)
-# Disable aggressive scalar replacement optimizations (GCC 8+)
-# These break unsafe MMIO struct pointer dereferences.
-KBUILD_CFLAGS += $(call cc-option,-fno-tree-sra)
-KBUILD_CFLAGS += $(call cc-option,-fno-ipa-sra)
-KBUILD_CFLAGS += $(call cc-option,-fno-tree-vectorize)
-KBUILD_CFLAGS += $(call cc-option,-fno-merge-constants)
 
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS	+= $(call cc-option,-Oz,-Os)
