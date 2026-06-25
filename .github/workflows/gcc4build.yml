@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
-          submodules: true
+          submodules: false
 
       - name: Install dependencies
         run: |
@@ -52,11 +52,7 @@ jobs:
             -d "text=🔔 GitHub Actions: Build started at $(date -u '+%Y-%m-%d %H:%M:%S UTC')." | tee /dev/stderr
           echo "If the message above shows 'ok:true', your bot can send messages to the chat."
 
-      - name: Unshallow KernelSU submodule
-        run: |
-          cd KernelSU
-          git fetch --unshallow
-          git fetch --tags
+
 
       - name: Build kernel
         run: |
@@ -206,57 +202,3 @@ jobs:
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Send artifacts to Telegram (lightweight + Release link)
-        env:
-          BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_TO }}
-          KERNEL_RELEASE: ${{ env.KERNEL_RELEASE }}
-        run: |
-          COMMIT_MSG=$(git log -1 --pretty=%s)
-          export COMMIT_MSG
-          python3 -c "
-          import os, requests
-
-          bot_token = os.environ['BOT_TOKEN']
-          chat_id = os.environ['CHAT_ID']
-          kernel_release = os.environ.get('KERNEL_RELEASE', 'unknown').strip()
-          commit_msg = os.environ.get('COMMIT_MSG', 'unknown').strip()
-          repo = os.environ.get('GITHUB_REPOSITORY', 'unknown')
-          ref = os.environ.get('GITHUB_REF_NAME', 'unknown')
-          sha = os.environ.get('GITHUB_SHA', 'unknown')[:7]
-          run_id = os.environ.get('GITHUB_RUN_ID', 'unknown')
-
-          release_url = f'https://github.com/{repo}/releases/tag/build-{run_id}'
-
-          zip_file = 'all_artifacts.zip'
-          if not os.path.exists(zip_file):
-              print(f'❌ {zip_file} not found')
-              exit(1)
-
-          size = os.path.getsize(zip_file)
-          print(f'📤 Sending {zip_file} ({size} bytes)...')
-
-          caption = (
-              f'✅ Build completed!\n'
-              f'📦 Kernel version: {kernel_release}\n'
-              f'📝 Commit: {commit_msg} ({sha})\n'
-              f'🌿 Branch: {ref}\n'
-              f'📁 Repo: {repo}\n'
-              f'📎 Artifacts attached: kernel image, modules, System.map, build.log\n'
-              f'📥 Full release (including vmlinux.gz):\n{release_url}'
-          )
-
-          with open(zip_file, 'rb') as f:
-              resp = requests.post(
-                  f'https://api.telegram.org/bot{bot_token}/sendDocument',
-                  data={'chat_id': chat_id, 'caption': caption},
-                  files={'document': f}
-              )
-          print(resp.text)
-          if resp.ok and resp.json().get('ok'):
-              print('✅ Telegram notification sent successfully!')
-          else:
-              print('❌ Failed to send Telegram.')
-              exit(1)
-          "
