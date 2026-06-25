@@ -58,6 +58,8 @@ jobs:
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-android-
+          export KBUILD_BUILD_USER="kalirok"
+          export KBUILD_BUILD_HOST="kali-linux"
 
           # ===== 1. 配置 & 编译内核本体 =====
           make cd12m_defconfig
