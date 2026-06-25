@@ -63,16 +63,6 @@ config TOUCHSCREEN_AD7877
 	  To compile this driver as a module, choose M here: the
 	  module will be called ad7877.
 
-config OP_HEAD_NOTIFIER
-	tristate "OP Headset Notifier support"
-	depends on INPUT
-	default y
-	help
-	  Say Y here to enable the OPLUS headset notifier chain.
-	  This is required by some OPLUS audio codec drivers
-	  (e.g. sc2730 headset driver).
-	  If unsure, say Y.
-
 config TOUCHSCREEN_AD7879
 	tristate "Analog Devices AD7879-1/AD7889-1 touchscreen interface"
 	help
@@ -83,14 +73,6 @@ config TOUCHSCREEN_AD7879
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called ad7879.
-
-config TOUCHSCREEN_CST9217
-	tristate "CST9217 based touch panel controllers"
-	depends on I2C
-	depends on INPUT
-	help
-	  Say Y here if you have hynitron touch panel.
-	  If unsure, say N.
 
 config TOUCHSCREEN_AD7879_I2C
 	tristate "support I2C bus connection"
