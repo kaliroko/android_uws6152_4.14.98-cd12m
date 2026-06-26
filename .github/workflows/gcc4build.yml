@@ -53,6 +53,7 @@ jobs:
           export KBUILD_BUILD_HOST="kali-linux"
 
           # ===== 1. 配置 & 编译内核本体 =====
+          touch .scmversion
           make cd12m_defconfig
           scripts/config --disable CONFIG_APPENDED_DTB
           scripts/config --disable CONFIG_EFI
