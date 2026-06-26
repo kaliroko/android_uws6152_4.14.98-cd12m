@@ -45,15 +45,6 @@ jobs:
           aarch64-linux-android-gcc --version
           aarch64-linux-android-gcc -fstack-protector-strong -c -x c /dev/null -o /dev/null
 
-      - name: Test Telegram connection (text message)
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_TO }}" \
-            -d "text=🔔 GitHub Actions: Build started at $(date -u '+%Y-%m-%d %H:%M:%S UTC')." | tee /dev/stderr
-          echo "If the message above shows 'ok:true', your bot can send messages to the chat."
-
-
-
       - name: Build kernel
         run: |
           export ARCH=arm64
