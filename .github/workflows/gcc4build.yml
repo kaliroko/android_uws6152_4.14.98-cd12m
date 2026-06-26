@@ -86,7 +86,8 @@ jobs:
                             modules/common/camera/flash/ocp8137 \
                             modules/common/camera/flash/sc2703s \
                             modules/common/camera/mmdvfs \
-                            modules/common/camera/fd"
+                            modules/common/camera/fd \
+                            modules/common/camera/cpp"
 
           # 所有宏（目录名必须和源码实际目录一致）
           EXTRA_ARGS="BSP_BOARD_CAMERA_MODULE_ISP_VERSION=isp2.6"
