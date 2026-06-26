@@ -8,12 +8,14 @@
 wm97xx-ts-y := wm97xx-core.o
 
 obj-$(CONFIG_TOUCHSCREEN_PROPERTIES)	+= of_touchscreen.o
+obj-$(CONFIG_OP_HEAD_NOTIFIER) += headset_notifier.o
 obj-$(CONFIG_TOUCHSCREEN_88PM860X)	+= 88pm860x-ts.o
 obj-$(CONFIG_TOUCHSCREEN_AD7877)	+= ad7877.o
 obj-$(CONFIG_TOUCHSCREEN_AD7879)	+= ad7879.o
 obj-$(CONFIG_TOUCHSCREEN_AD7879_I2C)	+= ad7879-i2c.o
 obj-$(CONFIG_TOUCHSCREEN_AD7879_SPI)	+= ad7879-spi.o
 obj-$(CONFIG_TOUCHSCREEN_ADS7846)	+= ads7846.o
+obj-$(CONFIG_TOUCHSCREEN_CST9217)	+= hynitron_cst9217.o
 obj-$(CONFIG_TOUCHSCREEN_AR1021_I2C)	+= ar1021_i2c.o
 obj-$(CONFIG_TOUCHSCREEN_ATMEL_MXT)	+= atmel_mxt_ts.o
 obj-$(CONFIG_TOUCHSCREEN_AUO_PIXCIR)	+= auo-pixcir-ts.o
@@ -106,7 +108,7 @@ obj-$(CONFIG_TOUCHSCREEN_COLIBRI_VF50)	+= colibri-vf50-ts.o
 obj-$(CONFIG_TOUCHSCREEN_ROHM_BU21023)	+= rohm_bu21023.o
 obj-$(CONFIG_TOUCHSCREEN_ADAPTIVE)      += adaptive-ts/
 #obj-$(CONFIG_TOUCHSCREEN_CST3XX)	+= cst3xx/
-obj-y					+= hynitron/
+obj-$(CONFIG_TOUCHSCREEN_HYNITRON_TS)	+= hynitron/
 obj-$(CONFIG_TOUCHSCREEN_GOODIX)	+= gt911/
 obj-y	+= virtual_touch.o
 obj-y	+= slot_hub.o
