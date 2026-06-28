@@ -52,11 +52,7 @@
 #define DMA_TIMEOUT                 5000
 #define CPP_IRQ_LINE_MASK           CPP_PATH_DONE
 #define CPP_MMU_IRQ_LINE_MASK       CPP_MMU_ERROR_INT
-#ifndef devm_clk_get_optional
-#define devm_clk_get_optional(dev, id) \
-    ({ struct clk *__c = devm_clk_get(dev, id); \
-       IS_ERR(__c) && PTR_ERR(__c) == -ENOENT ? NULL : __c; })
-#endif
+
 static const char * const syscon_name[] = {
 	"cpp_rst",
 	"path0_rst",
