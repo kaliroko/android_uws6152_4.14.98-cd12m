@@ -1,15 +1,12 @@
 /*
+ * Spreadtrum mtty driver with TTY + native HCI support.
+ * TTY: /dev/ttyBT0  (original)
+ * HCI: /dev/hci0     (new, for Android standard stack)
+ *
  * Copyright (C) 2015 Spreadtrum Communications Inc.
- *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Modified: HCI registration added, TTY preserved.
  */
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -24,6 +21,7 @@
 #include <linux/semaphore.h>
 #include <linux/vmalloc.h>
 #include <linux/atomic.h>
+#include <linux/compiler.h>           /* 添加此行，提供 __maybe_unused */
 #ifdef CONFIG_OF
 #include <linux/of_device.h>
 #endif
@@ -76,13 +74,13 @@ struct mtty_device {
     struct platform_device  *pdev;
 
     atomic_t state;
-    atomic_t open_count;            /* 引用计数：TTY + HCI */
+    atomic_t open_count;
     struct mutex rw_mutex;
     struct list_head rx_head;
     struct work_struct bt_rx_work;
     struct workqueue_struct *bt_rx_workqueue;
 
-    struct hci_dev *hdev;           /* HCI 设备指针 */
+    struct hci_dev *hdev;
 };
 
 typedef struct {
@@ -236,7 +234,7 @@ int mtty_dma_buf_free(int num)
     return 0;
 }
 
-/* ---------- workqueue (TTY + HCI 分发) ---------- */
+/* ---------- workqueue ---------- */
 static void mtty_rx_work_queue(struct work_struct *work)
 {
     int i, ret = 0;
@@ -298,8 +296,9 @@ static void mtty_rx_work_queue(struct work_struct *work)
     }
 }
 
-/* ---------- SDIO/PCIe 接收回调 (优化快速路径) ---------- */
-static int mtty_sdio_rx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, int num)
+/* ---------- SDIO/PCIE 接收回调 (加上 __maybe_unused) ---------- */
+static __maybe_unused int mtty_sdio_rx_cb(int chn, struct mbuf_t *head,
+                                          struct mbuf_t *tail, int num)
 {
     int ret = 0, block_size;
     struct rx_data *rx;
@@ -320,7 +319,6 @@ static int mtty_sdio_rx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, in
         return -1;
     }
 
-    /* 仅当 HCI 未运行时使用 TTY 快速路径 */
     if (!mtty_dev->hdev || !test_bit(HCI_RUNNING, &mtty_dev->hdev->flags)) {
         if (!work_pending(&mtty_dev->bt_rx_work)) {
             ret = tty_insert_flip_string(mtty_dev->port,
@@ -335,7 +333,6 @@ static int mtty_sdio_rx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, in
         }
     }
 
-    /* 排队 */
     rx = kmalloc(sizeof(struct rx_data), GFP_KERNEL);
     if (rx == NULL) {
         sprdwcn_bus_push_list(chn, head, tail, num);
@@ -362,7 +359,8 @@ static int mtty_sdio_rx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, in
     return 0;
 }
 
-static int mtty_pcie_rx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, int num)
+static __maybe_unused int mtty_pcie_rx_cb(int chn, struct mbuf_t *head,
+                                          struct mbuf_t *tail, int num)
 {
     int ret = 0, len_send;
     struct rx_data *rx;
@@ -421,7 +419,8 @@ static int mtty_pcie_rx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, in
 }
 
 /* ---------- 发送回调 ---------- */
-static int mtty_sdio_tx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, int num)
+static __maybe_unused int mtty_sdio_tx_cb(int chn, struct mbuf_t *head,
+                                          struct mbuf_t *tail, int num)
 {
     int i;
     struct mbuf_t *pos = NULL;
@@ -437,7 +436,8 @@ static int mtty_sdio_tx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, in
     return 0;
 }
 
-static int mtty_pcie_tx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, int num)
+static __maybe_unused int mtty_pcie_tx_cb(int chn, struct mbuf_t *head,
+                                          struct mbuf_t *tail, int num)
 {
     int i;
     struct mbuf_t *pos = NULL;
@@ -641,7 +641,7 @@ static inline void mtty_destroy_pdata(struct mtty_init_data **init)
 #endif
 }
 
-/* ---------- TTY open/close (引用计数) ---------- */
+/* ---------- TTY open/close ---------- */
 static int mtty_tty_open(struct tty_struct *tty, struct file *filp)
 {
     struct mtty_device *mtty = NULL;
