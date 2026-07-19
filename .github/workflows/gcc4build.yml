@@ -46,7 +46,11 @@ jobs:
           aarch64-linux-android-gcc -fstack-protector-strong -c -x c /dev/null -o /dev/null
 
 
-
+      - name: Unshallow KernelSU submodule
+        run: |
+          cd KernelSU
+          git fetch --unshallow
+          git fetch --tags
       
       - name: Build kernel
         run: |
