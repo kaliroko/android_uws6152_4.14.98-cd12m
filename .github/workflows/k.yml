@@ -36,7 +36,8 @@ jobs:
           fi
           echo "找到项目目录：$PROJ_DIR"
           cd "$PROJ_DIR"
-          dotnet publish -c Release -r linux-arm64 --self-contained true -o publish
+          # 明确指定目标框架为 net6.0 并发布 ARM64 自包含版本
+          dotnet publish -c Release -r linux-arm64 --self-contained true -f net6.0 -o publish
           echo "PUBLISH_DIR=$(pwd)/publish" >> $GITHUB_ENV
 
       - name: 打包可执行文件
