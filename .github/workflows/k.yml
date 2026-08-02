@@ -60,3 +60,4 @@ jobs:
             ./Il2CppDumper libil2cpp.so global-metadata.dat output_dir
             ```
           files: il2cpp-arm64.tar.gz
+
