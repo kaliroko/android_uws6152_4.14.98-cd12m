@@ -1,10 +1,10 @@
 name: Build Il2CppDumper ARM64 & Release
 
 on:
-  workflow_dispatch:        # 手动触发，需要的时候运行一次
+  workflow_dispatch:
 
 permissions:
-  contents: write           # 允许创建 Release
+  contents: write
 
 jobs:
   build-and-release:
@@ -16,29 +16,34 @@ jobs:
           dotnet-version: '6.0.x'
 
       - name: 克隆 Il2CppDumper 源码
-        run: git clone https://github.com/Perfare/Il2CppDumper.git
+        run: |
+          git clone --depth 1 --branch master https://github.com/Perfare/Il2CppDumper.git
+          echo "CLONE_DIR=$(pwd)/Il2CppDumper" >> $GITHUB_ENV
+
+      - name: 确认项目目录结构
+        run: |
+          cd $CLONE_DIR
+          ls -d Il2CppDumper-net6 || (echo "ERROR: Il2CppDumper-net6 not found" && exit 1)
 
       - name: 交叉编译 ARM64 自包含版本
         run: |
-          cd Il2CppDumper/Il2CppDumper-net6
+          cd $CLONE_DIR/Il2CppDumper-net6
           dotnet publish -c Release -r linux-arm64 --self-contained true -o publish
 
       - name: 打包可执行文件
         run: |
-          cd Il2CppDumper/Il2CppDumper-net6/publish
+          cd $CLONE_DIR/Il2CppDumper-net6/publish
           chmod +x Il2CppDumper
-          tar czf ../../../il2cpp-arm64.tar.gz .
-          cd ../../..
+          tar czf $GITHUB_WORKSPACE/il2cpp-arm64.tar.gz .
+          echo "Archive created at $GITHUB_WORKSPACE/il2cpp-arm64.tar.gz"
 
-      - name: 创建 Release 并上传文件
+      - name: 创建 Release 并上传
         uses: softprops/action-gh-release@v2
         with:
           tag_name: il2cpp-arm64-${{ github.run_number }}
           name: Il2CppDumper ARM64 - Build ${{ github.run_number }}
           body: |
             自动构建的 Il2CppDumper ARM64 原生版本。
-            - 构建日期：${{ github.event.repository.updated_at }}
-            - 运行编号：${{ github.run_number }}
             使用方法：
             ```bash
             tar xzf il2cpp-arm64.tar.gz
