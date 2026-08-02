@@ -1,0 +1,3 @@
+[submodule "ReSukiSU"]
+	path = KernelSU
+	url = https://github.com/ReSukiSU/ReSukiSU.git
