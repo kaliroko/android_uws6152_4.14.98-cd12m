@@ -55,7 +55,7 @@
 /* Bluetooth HCI definitions */
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
-#include "../../../bluetooth/hci_uart.h"
+#include "../../../../bluetooth/hci_uart.h"
 
 static struct semaphore sem_id;
 
