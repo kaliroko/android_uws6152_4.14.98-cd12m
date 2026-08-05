@@ -55,27 +55,7 @@
 /* Bluetooth HCI definitions */
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
-#include <net/bluetooth/hci_uart.h>
-
-#define HCIUARTSETPROTO		_IOW('U', 200, int)
-#define HCIUARTGETPROTO		_IOR('U', 201, int)
-#define HCIUARTGETDEVICE	_IOR('U', 202, int)
-#define HCIUARTSETFLAGS		_IOW('U', 203, int)
-#define HCIUARTGETFLAGS		_IOR('U', 204, int)
-
-/* HCI UART protocols */
-#define HCI_UART_H4		0
-#define HCI_UART_BCSP	1
-#define HCI_UART_3WIRE	2
-#define HCI_UART_H4DS	3
-#define HCI_UART_LL		4
-#define HCI_UART_ATH3K	5
-#define HCI_UART_INTEL	6
-#define HCI_UART_BCM	7
-#define HCI_UART_QCA	8
-#define HCI_UART_AG6XX	9
-#define HCI_UART_NOKIA	10
-#define HCI_UART_MRVL	11
+#include "../../../bluetooth/hci_uart.h"
 
 static struct semaphore sem_id;
 
