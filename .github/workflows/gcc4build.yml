@@ -51,7 +51,12 @@ jobs:
           cd KernelSU
           git fetch --unshallow
           git fetch --tags
-      
+
+      - name: Create KernelSU symlink
+        run: |
+          ln -sfn ../KernelSU/kernel drivers/kernelsu
+          ls -la drivers/kernelsu
+
       - name: Build kernel
         run: |
           export ARCH=arm64
