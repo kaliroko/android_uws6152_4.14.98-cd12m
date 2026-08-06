@@ -1,5 +1,3 @@
-```markdown
----
 title: "KernelSU-kali 通用内核集成指南"
 tags: [KernelSU, Android, 内核编译, Root, ReSukiSU, CI/CD, Kali蓝牙, Hook, LSM, GitHub Actions, 符号链接, submodule, defconfig, 安全性]
 last_updated: "2026-08-06"
