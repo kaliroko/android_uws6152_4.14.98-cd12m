@@ -54,6 +54,7 @@
 
 /* Bluetooth HCI definitions */
 #include <net/bluetooth/bluetooth.h>
+#include <net/bluetooth/hci.h>
 #include <net/bluetooth/hci_core.h>
 #include "../../../../bluetooth/hci_uart.h"
 
@@ -304,13 +305,15 @@ int mtty_dma_buf_alloc(int chn, int size, int num)
 int mtty_dma_buf_free(int num) {
     int loop_count = 0;
     for (; loop_count < num; loop_count++) {
-        if(!dm_rx_t) {
-			dev_unisoc_bt_err(ttyBT_dev,"%s: dm_rx_t or is dm_rx_ptr NULL \n", __func__);	
-        } else {
-            dma_free_coherent(dm_rx_t, BT_PCIE_RX_DMA_SIZE , (void *)dm_rx_ptr[loop_count], dm_rx_phy[loop_count]);
-			dev_unisoc_bt_err(ttyBT_dev,"%s: free  dm_rx_ptr[%d] success \n", __func__, loop_count);
-            dm_rx_ptr[loop_count] = NULL;
+        if (!dm_rx_t || !dm_rx_ptr[loop_count]) {
+            dev_unisoc_bt_err(ttyBT_dev, "%s: dm_rx_t or dm_rx_ptr[%d] is NULL, skip\n",
+                              __func__, loop_count);
+            continue;
         }
+        dma_free_coherent(dm_rx_t, BT_PCIE_RX_DMA_SIZE, (void *)dm_rx_ptr[loop_count], dm_rx_phy[loop_count]);
+        dev_unisoc_bt_info(ttyBT_dev, "%s: free dm_rx_ptr[%d] success\n", __func__, loop_count);
+        dm_rx_ptr[loop_count] = NULL;
+        dm_rx_phy[loop_count] = 0;
     }
     return 0;
 }
@@ -440,6 +443,28 @@ static int mtty_sdio_rx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, in
                               __func__, ret, block_size);
             if (ret)
                 tty_flip_buffer_push(mtty_dev->port);
+
+            /* 直接调用 hci_recv_frame() 将 HCI 数据传递给协议栈 */
+            if (mtty_dev->hdev) {
+                struct sk_buff *skb;
+                unsigned char *hci_data;
+                skb = bt_skb_alloc(block_size, GFP_ATOMIC);
+                if (skb) {
+                    hci_data = (unsigned char *)head->buf + BT_SDIO_HEAD_LEN;
+                    skb_put_data(skb, hci_data, block_size);
+                    hci_skb_pkt_type(skb) = hci_data[0];
+                    ret = hci_recv_frame(mtty_dev->hdev, skb);
+                    if (ret < 0)
+                        dev_unisoc_bt_err(ttyBT_dev,
+                                          "%s hci_recv_frame failed: %d\n",
+                                          __func__, ret);
+                } else {
+                    dev_unisoc_bt_err(ttyBT_dev,
+                                      "%s bt_skb_alloc failed\n",
+                                      __func__);
+                }
+            }
+
             if (ret == (block_size)) {
                 dev_unisoc_bt_dbg(ttyBT_dev,
                                   "%s send success",
@@ -522,6 +547,28 @@ static int mtty_pcie_rx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, in
 			dev_unisoc_bt_dbg(ttyBT_dev,"%s() ret=%d, len=%d\n", __func__, ret, len_send);
             if (ret)
                 tty_flip_buffer_push(mtty_dev->port);
+
+            /* 直接调用 hci_recv_frame() 将 HCI 数据传递给协议栈 */
+            if (mtty_dev->hdev) {
+                struct sk_buff *skb;
+                unsigned char *hci_data;
+                skb = bt_skb_alloc(len_send, GFP_ATOMIC);
+                if (skb) {
+                    hci_data = (unsigned char *)head->buf + BT_PCIE_HEAD_LEN;
+                    skb_put_data(skb, hci_data, len_send);
+                    hci_skb_pkt_type(skb) = hci_data[0];
+                    ret = hci_recv_frame(mtty_dev->hdev, skb);
+                    if (ret < 0)
+                        dev_unisoc_bt_err(ttyBT_dev,
+                                          "%s() hci_recv_frame failed: %d\n",
+                                          __func__, ret);
+                } else {
+                    dev_unisoc_bt_err(ttyBT_dev,
+                                      "%s() bt_skb_alloc failed\n",
+                                      __func__);
+                }
+            }
+
             if (ret == (len_send)) {
 				dev_unisoc_bt_dbg(ttyBT_dev,"%s() send success", __func__);
                 sprdwcn_bus_push_list(chn, head, tail, num);
@@ -1188,6 +1235,7 @@ static int bluetooth_reset(struct notifier_block *this, unsigned long ev, void *
     int ret = 0;
     int block_size = RESET_BUFSIZE;
 	unsigned char reset_buf[RESET_BUFSIZE]= {0x04, 0xff, 0x02, 0x57, 0xa5};
+    int reset_retry;
 
 	dev_unisoc_bt_info(ttyBT_dev,"%s: reset callback coming\n", __func__);
 	if (mtty_dev != NULL) {
@@ -1195,7 +1243,6 @@ static int bluetooth_reset(struct notifier_block *this, unsigned long ev, void *
 
 			dev_unisoc_bt_info(ttyBT_dev,"%s tty_insert_flip_string", __func__);
 
-			int reset_retry;
 			for (reset_retry = 0; reset_retry < 100 && ret < block_size; reset_retry++) {
 				dev_unisoc_bt_info(ttyBT_dev,"%s before tty_insert_flip_string ret: %d, len: %d\n",
 						__func__, ret, RESET_BUFSIZE);
@@ -1329,6 +1376,8 @@ static int  mtty_probe(struct platform_device *pdev)
 
     hci_set_drvdata(mtty->hdev, mtty);
     mtty->hdev->bus = HCI_UART;
+    mtty->hdev->dev_type = HCI_PRIMARY;
+    set_bit(HCI_QUIRK_INVALID_BDADDR, &mtty->hdev->quirks);
     mtty->hdev->open = mtty_hci_open;
     mtty->hdev->close = mtty_hci_close;
     mtty->hdev->flush = mtty_hci_flush;
@@ -1375,10 +1424,16 @@ static int  mtty_remove(struct platform_device *pdev)
     }
 
     mtty_tty_driver_exit(mtty);
+
     if (wcn_hw_type == HW_TYPE_SDIO) {
         sprdwcn_bus_chn_deinit(&bt_sdio_rx_ops);
         sprdwcn_bus_chn_deinit(&bt_sdio_tx_ops);
+    } else if (wcn_hw_type == HW_TYPE_PCIE) {
+        sprdwcn_bus_chn_deinit(&bt_pcie_rx_ops);
+        sprdwcn_bus_chn_deinit(&bt_pcie_tx_ops);
     }
+
+    rfkill_bluetooth_remove(pdev);
     mtty_destroy_pdata(&mtty->pdata);
     /*tasklet_kill(&mtty->rx_task);*/
     kfree(mtty);
