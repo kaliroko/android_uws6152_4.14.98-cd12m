@@ -233,6 +233,11 @@ jobs:
           cp modules.tar.gz modules.zip telegram_artifacts/ 2>/dev/null || true
           cp System.map Module.symvers build.log telegram_artifacts/ 2>/dev/null || true
           cp AnyKernel3.zip telegram_artifacts/
+          # 添加 Manager APK
+          if [ -f "KernelSU/manager/app/build/outputs/apk/debug/*.apk" ]; then
+            cp KernelSU/manager/app/build/outputs/apk/debug/*.apk telegram_artifacts/
+            echo "Added Manager APK to artifacts"
+          fi
           cd telegram_artifacts
           zip -9 ../all_artifacts.zip *
           cd ..
@@ -253,6 +258,7 @@ jobs:
             System.map
             Module.symvers
             vmlinux.gz
+            KernelSU/manager/app/build/outputs/apk/debug/*.apk
           draft: false
           prerelease: true
         env:
