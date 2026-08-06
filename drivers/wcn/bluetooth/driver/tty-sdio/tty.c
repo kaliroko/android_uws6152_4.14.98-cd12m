@@ -275,7 +275,6 @@ int mtty_dma_buf_alloc(int chn, int size, int num)
 		ret = mtty_dmalloc(dm_rx_t, &temp, size);
 		if (ret != 0) {
 			/* Rollback: free already allocated DMA buffers */
-			struct mbuf_t *pos = head;
 			int j;
 			for (j = 0; j < i; j++) {
 				if (dm_rx_ptr[j]) {
@@ -997,7 +996,7 @@ static int mtty_write_room(struct tty_struct *tty)
 	return INT_MAX;
 }
 
-static int mtty_ioctl(struct tty_struct *tty, struct file *file,
+static int mtty_ioctl(struct tty_struct *tty,
                       unsigned int cmd, unsigned long arg)
 {
     struct mtty_device *mtty = tty->driver_data;
@@ -1196,8 +1195,8 @@ static int bluetooth_reset(struct notifier_block *this, unsigned long ev, void *
 
 			dev_unisoc_bt_info(ttyBT_dev,"%s tty_insert_flip_string", __func__);
 
-			int reset_retry = 0;
-			while(ret < block_size && reset_retry < 100){
+			int reset_retry;
+			for (reset_retry = 0; reset_retry < 100 && ret < block_size; reset_retry++) {
 				dev_unisoc_bt_info(ttyBT_dev,"%s before tty_insert_flip_string ret: %d, len: %d\n",
 						__func__, ret, RESET_BUFSIZE);
 				ret = tty_insert_flip_string(mtty_dev->port,
@@ -1208,7 +1207,6 @@ static int bluetooth_reset(struct notifier_block *this, unsigned long ev, void *
 					tty_flip_buffer_push(mtty_dev->port);
 				block_size = block_size - ret;
 				ret = 0;
-				reset_retry++;
 			}
 			if (reset_retry >= 100) {
 				dev_unisoc_bt_err(ttyBT_dev,
