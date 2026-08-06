@@ -57,6 +57,54 @@ jobs:
           ln -sfn ../KernelSU/kernel drivers/kernelsu
           ls -la drivers/kernelsu
 
+      - name: Setup Rust toolchain for ksud
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+          targets: aarch64-linux-android
+          components: rust-src
+
+      - name: Setup cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build ksud binary
+        run: |
+          cd KernelSU/userspace/ksud
+          cargo ndk b -t aarch64-linux-android -r \
+            -Z build-std=std,core,panic_abort \
+            -Z build-std-features="optimize_for_size" \
+            -Z trim-paths
+          # 复制到 jniLibs 供 Manager APK 使用
+          mkdir -p ../../manager/app/src/main/jniLibs/arm64-v8a
+          cp target/aarch64-linux-android/release/ksud \
+             ../../manager/app/src/main/jniLibs/arm64-v8a/libksud.so
+          chmod +x target/aarch64-linux-android/release/ksud
+          ls -lh target/aarch64-linux-android/release/ksud
+          ls -lh ../../manager/app/src/main/jniLibs/arm64-v8a/libksud.so
+
+      - name: Setup Java for Manager APK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle for Manager
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Build Manager APK with ksud
+        run: |
+          cd KernelSU/manager
+          # 创建 local.properties 指向 Android SDK
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          # 编译 debug APK（包含 libksud.so）
+          ./gradlew assembleDebug -Pcommit=$(git rev-parse HEAD)
+          # 验证 APK 包含 libksud.so
+          unzip -l app/build/outputs/apk/debug/*.apk | grep libksud
+          ls -lh app/build/outputs/apk/debug/*.apk
+
       - name: Build kernel
         run: |
           export ARCH=arm64
