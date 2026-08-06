@@ -1,6 +1,6 @@
-# KernelSU-CD_系列 集成完整指南
+# KernelSU-kali 集成W527通用内核
 
-> 本文档详细说明如何将 KernelSU（ReSukiSU）集成到 Android 内核中，包括问题排查、解决方案和安全性分析。
+> 本文档详细说明如何将 KernelSU（ReSukiSU+kali 蓝牙集成到 Android 内核中，包括问题排查、解决方案和安全性分析。
 
 ---
 
