@@ -1,4 +1,4 @@
-# KernelSU-kali 集成通用内核
+# KernelSU-kali 通用内核
 
 > 本文档详细说明如何将 KernelSU（ReSukiSU+kali 蓝牙集成到 Android 内核中，包括问题排查、解决方案和安全性分析。
 
