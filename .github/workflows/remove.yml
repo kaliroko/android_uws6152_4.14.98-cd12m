@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest   # 如果可能，建议改为 ubuntu-24.04-arm 使用 ARM64 原生构建
+    runs-on: ubuntu-latest   # 如需 ARM64 原生构建，改为 ubuntu-24.04-arm
     strategy:
       matrix:
         node-version: [22]
@@ -42,18 +42,43 @@ jobs:
         find . -type f -name "*.js" -exec sed -i 's/require("node-pty")/require("@homebridge\/node-pty-prebuilt-multiarch")/g' {} \;
         find . -type f -name "*.ts" -exec sed -i 's/require("node-pty")/require("@homebridge\/node-pty-prebuilt-multiarch")/g' {} \;
 
-    - name: Remove ALL patchedDependencies (including nested under pnpm)
+    - name: Remove all patchedDependencies from package.json files
       working-directory: ./deepseek-harness
       run: |
+        # 递归删除所有 package.json 中任意层级的 patchedDependencies 字段
         find . -name "package.json" -exec sh -c '
           jq "walk(if type == \"object\" then del(.patchedDependencies) else . end)" "$0" > "$0.tmp" && mv "$0.tmp" "$0"
         ' {} \;
 
-    - name: Verify no patchedDependencies remain
+    - name: Remove patchedDependencies from pnpm-workspace.yaml if exists
       working-directory: ./deepseek-harness
       run: |
-        if grep -r "patchedDependencies" --include="package.json" .; then
-          echo "ERROR: patchedDependencies still present!"
+        if [ -f pnpm-workspace.yaml ]; then
+          echo "Found pnpm-workspace.yaml, removing patchedDependencies..."
+          # 使用 Python 安全删除 YAML 中的 patchedDependencies 键
+          python3 - <<'EOF'
+import yaml
+import sys
+
+with open('pnpm-workspace.yaml', 'r') as f:
+    data = yaml.safe_load(f)
+
+if isinstance(data, dict) and 'patchedDependencies' in data:
+    del data['patchedDependencies']
+
+with open('pnpm-workspace.yaml', 'w') as f:
+    yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+print("Removed patchedDependencies from pnpm-workspace.yaml")
+EOF
+        else
+          echo "No pnpm-workspace.yaml found, skipping."
+        fi
+
+    - name: Ensure no patchedDependencies remain anywhere
+      working-directory: ./deepseek-harness
+      run: |
+        if grep -r "patchedDependencies" --include="*.json" --include="*.yaml" --include="*.yml" .; then
+          echo "ERROR: patchedDependencies still present in JSON/YAML files!"
           exit 1
         else
           echo "All patchedDependencies removed successfully."
