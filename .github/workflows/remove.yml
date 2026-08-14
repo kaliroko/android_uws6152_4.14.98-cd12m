@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest   # 如需 ARM64 原生构建，改为 ubuntu-24.04-arm
+    runs-on: ubuntu-latest          # 使用 x64 runner 进行交叉编译
     strategy:
       matrix:
         node-version: [22]
@@ -28,10 +28,12 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
 
-    - name: Install pnpm and jq
+    - name: Install pnpm, jq and PyYAML
       run: |
         npm install -g pnpm
-        sudo apt-get update && sudo apt-get install -y jq
+        sudo apt-get update
+        sudo apt-get install -y jq
+        pip install pyyaml   # 用于处理 YAML
 
     - name: Patch node-pty dependency
       working-directory: ./deepseek-harness
@@ -55,10 +57,8 @@ jobs:
       run: |
         if [ -f pnpm-workspace.yaml ]; then
           echo "Found pnpm-workspace.yaml, removing patchedDependencies..."
-          # 使用 Python 安全删除 YAML 中的 patchedDependencies 键
           python3 - <<'EOF'
 import yaml
-import sys
 
 with open('pnpm-workspace.yaml', 'r') as f:
     data = yaml.safe_load(f)
@@ -78,7 +78,7 @@ EOF
       working-directory: ./deepseek-harness
       run: |
         if grep -r "patchedDependencies" --include="*.json" --include="*.yaml" --include="*.yml" .; then
-          echo "ERROR: patchedDependencies still present in JSON/YAML files!"
+          echo "ERROR: patchedDependencies still present!"
           exit 1
         else
           echo "All patchedDependencies removed successfully."
@@ -88,9 +88,23 @@ EOF
       working-directory: ./deepseek-harness
       run: rm -f pnpm-lock.yaml
 
+    - name: Configure pnpm for ARM64 target
+      working-directory: ./deepseek-harness
+      run: |
+        # 告诉 pnpm 目标架构是 arm64，这样预编译包会下载 ARM64 版本
+        echo "supportedArchitectures[linux][arm64]=true" >> .npmrc
+        echo "npm_config_arch=arm64" >> .npmrc
+        echo "npm_config_target_arch=arm64" >> .npmrc
+        # 可选：避免平台不匹配警告
+        echo "npm_config_platform=linux" >> .npmrc
+
     - name: Install dependencies
       working-directory: ./deepseek-harness
       run: pnpm install --no-frozen-lockfile
+      env:
+        npm_config_arch: arm64
+        npm_config_target_arch: arm64
+        npm_config_platform: linux
 
     - name: Build project
       working-directory: ./deepseek-harness
