@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest   # 如果可能，建议改为 ubuntu-24.04-arm 使用 ARM64 原生构建
     strategy:
       matrix:
         node-version: [22]
@@ -42,26 +42,34 @@ jobs:
         find . -type f -name "*.js" -exec sed -i 's/require("node-pty")/require("@homebridge\/node-pty-prebuilt-multiarch")/g' {} \;
         find . -type f -name "*.ts" -exec sed -i 's/require("node-pty")/require("@homebridge\/node-pty-prebuilt-multiarch")/g' {} \;
 
-    - name: Remove all patchedDependencies from all package.json files
+    - name: Remove ALL patchedDependencies (including nested under pnpm)
       working-directory: ./deepseek-harness
       run: |
         find . -name "package.json" -exec sh -c '
           jq "walk(if type == \"object\" then del(.patchedDependencies) else . end)" "$0" > "$0.tmp" && mv "$0.tmp" "$0"
         ' {} \;
 
-    - name: Remove pnpm-lock.yaml to clean unused patches
+    - name: Verify no patchedDependencies remain
+      working-directory: ./deepseek-harness
+      run: |
+        if grep -r "patchedDependencies" --include="package.json" .; then
+          echo "ERROR: patchedDependencies still present!"
+          exit 1
+        else
+          echo "All patchedDependencies removed successfully."
+        fi
+
+    - name: Remove pnpm-lock.yaml
       working-directory: ./deepseek-harness
       run: rm -f pnpm-lock.yaml
 
-    - name: Install dependencies (allow lockfile update)
+    - name: Install dependencies
       working-directory: ./deepseek-harness
-      run: |
-        pnpm install --no-frozen-lockfile
+      run: pnpm install --no-frozen-lockfile
 
     - name: Build project
       working-directory: ./deepseek-harness
-      run: |
-        pnpm run build
+      run: pnpm run build
 
     - name: Package build artifacts
       run: |
