@@ -1,41 +1,125 @@
-name: Apply ReSukiSU
+name: Cross-Compile and Release DeepSeek Harness for ARM64
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
-    inputs:
-      branch:
-        description: 'Branch to apply ReSukiSU'
-        required: true
-        default: 'main'
+
+permissions:
+  contents: write
 
 jobs:
-  apply-sukisu:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+  build-and-release:
+    runs-on: ubuntu-latest          # 使用 x64 runner 进行交叉编译
+    strategy:
+      matrix:
+        node-version: [22]
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch }}
-          fetch-depth: 0   # 关键：获取完整历史，使所有分支可用
+    - name: Checkout official DeepSeek Harness repository
+      uses: actions/checkout@v4
+      with:
+        repository: deepseek-ai/deepseek-harness
+        path: deepseek-harness
 
-      - name: Ensure main branch is available (optional safety)
-        run: git fetch origin main
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
 
-      - name: Run ReSukiSU integration script
-        run: |
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+    - name: Install pnpm, jq and PyYAML
+      run: |
+        npm install -g pnpm
+        sudo apt-get update
+        sudo apt-get install -y jq
+        pip install pyyaml   # 用于处理 YAML
 
-      - name: Commit and push changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-          git commit -m "Apply ReSukiSU modifications [skip ci]"
-          git push origin ${{ github.event.inputs.branch }}
+    - name: Patch node-pty dependency
+      working-directory: ./deepseek-harness
+      run: |
+        # 替换所有 package.json 中的 node-pty 为预编译版本
+        find . -name "package.json" -exec sed -i 's/"node-pty": "[^"]*"/"@homebridge\/node-pty-prebuilt-multiarch": "^0.14.1"/g' {} \;
+        # 替换源码中的 require 语句 (js 和 ts)
+        find . -type f -name "*.js" -exec sed -i 's/require("node-pty")/require("@homebridge\/node-pty-prebuilt-multiarch")/g' {} \;
+        find . -type f -name "*.ts" -exec sed -i 's/require("node-pty")/require("@homebridge\/node-pty-prebuilt-multiarch")/g' {} \;
+
+    - name: Remove all patchedDependencies from package.json files
+      working-directory: ./deepseek-harness
+      run: |
+        # 递归删除所有 package.json 中任意层级的 patchedDependencies 字段
+        find . -name "package.json" -exec sh -c '
+          jq "walk(if type == \"object\" then del(.patchedDependencies) else . end)" "$0" > "$0.tmp" && mv "$0.tmp" "$0"
+        ' {} \;
+
+    - name: Remove patchedDependencies from pnpm-workspace.yaml if exists
+      working-directory: ./deepseek-harness
+      run: |
+        if [ -f pnpm-workspace.yaml ]; then
+          echo "Found pnpm-workspace.yaml, removing patchedDependencies..."
+          python3 - <<'EOF'
+import yaml
+
+with open('pnpm-workspace.yaml', 'r') as f:
+    data = yaml.safe_load(f)
+
+if isinstance(data, dict) and 'patchedDependencies' in data:
+    del data['patchedDependencies']
+
+with open('pnpm-workspace.yaml', 'w') as f:
+    yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+print("Removed patchedDependencies from pnpm-workspace.yaml")
+EOF
+        else
+          echo "No pnpm-workspace.yaml found, skipping."
+        fi
+
+    - name: Ensure no patchedDependencies remain anywhere
+      working-directory: ./deepseek-harness
+      run: |
+        if grep -r "patchedDependencies" --include="*.json" --include="*.yaml" --include="*.yml" .; then
+          echo "ERROR: patchedDependencies still present!"
+          exit 1
+        else
+          echo "All patchedDependencies removed successfully."
+        fi
+
+    - name: Remove pnpm-lock.yaml
+      working-directory: ./deepseek-harness
+      run: rm -f pnpm-lock.yaml
+
+    - name: Configure pnpm for ARM64 target
+      working-directory: ./deepseek-harness
+      run: |
+        # 告诉 pnpm 目标架构是 arm64，这样预编译包会下载 ARM64 版本
+        echo "supportedArchitectures[linux][arm64]=true" >> .npmrc
+        echo "npm_config_arch=arm64" >> .npmrc
+        echo "npm_config_target_arch=arm64" >> .npmrc
+        # 可选：避免平台不匹配警告
+        echo "npm_config_platform=linux" >> .npmrc
+
+    - name: Install dependencies
+      working-directory: ./deepseek-harness
+      run: pnpm install --no-frozen-lockfile
+      env:
+        npm_config_arch: arm64
+        npm_config_target_arch: arm64
+        npm_config_platform: linux
+
+    - name: Build project
+      working-directory: ./deepseek-harness
+      run: pnpm run build
+
+    - name: Package build artifacts
+      run: |
+        mkdir -p release
+        cp -r deepseek-harness/packages/dsh/dist release/
+        cp deepseek-harness/packages/dsh/package.json release/
+        cd release && tar -czvf ../deepseek-harness-arm64.tar.gz .
+
+    - name: Upload to GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: deepseek-harness-arm64.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
