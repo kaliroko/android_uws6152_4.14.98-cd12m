@@ -42,10 +42,10 @@ jobs:
         find . -type f -name "*.js" -exec sed -i 's/require("node-pty")/require("@homebridge\/node-pty-prebuilt-multiarch")/g' {} \;
         find . -type f -name "*.ts" -exec sed -i 's/require("node-pty")/require("@homebridge\/node-pty-prebuilt-multiarch")/g' {} \;
 
-    - name: Remove unused node-pty patch from root package.json
+    - name: Remove all patchedDependencies from all package.json files
       working-directory: ./deepseek-harness
       run: |
-        jq 'del(.patchedDependencies["node-pty"])' package.json > package.json.tmp && mv package.json.tmp package.json
+        find . -name "package.json" -exec sh -c 'jq "del(.patchedDependencies)" "$0" > "$0.tmp" && mv "$0.tmp" "$0"' {} \;
 
     - name: Install dependencies (allow lockfile update)
       working-directory: ./deepseek-harness
