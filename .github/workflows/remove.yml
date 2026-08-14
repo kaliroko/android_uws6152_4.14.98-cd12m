@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest          # 如需原生 ARM64 构建，可改为 ubuntu-24.04-arm 并移除 ARM64 配置步骤
+    runs-on: ubuntu-latest          # 如果您的 GitHub 账户支持 ARM64 runner，可改为 ubuntu-24.04-arm 并删除 ARM64 配置步骤
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,6 +27,7 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
 
+      # 删除所有 package.json 中任意位置的 patchedDependencies 字段
       - name: Remove patchedDependencies from all package.json
         working-directory: deepseek-harness
         run: |
@@ -59,15 +60,14 @@ jobs:
         working-directory: deepseek-harness
         run: rm -f pnpm-lock.yaml
 
+      # 配置 ARM64 目标，并使用 pnpm overrides 将 node-pty 替换为预编译包
       - name: Configure pnpm for ARM64 and node-pty override
         working-directory: deepseek-harness
         run: |
-          # 设置 ARM64 架构
           echo "supportedArchitectures[linux][arm64]=true" >> .npmrc
           echo "npm_config_arch=arm64" >> .npmrc
           echo "npm_config_target_arch=arm64" >> .npmrc
           echo "npm_config_platform=linux" >> .npmrc
-          # 使用 overrides 将 node-pty 替换为预编译多架构包（解决 ERR_PNPM_UNUSED_PATCH 和版本问题）
           echo "overrides[node-pty]=npm:@homebridge/node-pty-prebuilt-multiarch@^0.14.1" >> .npmrc
 
       - name: Install dependencies
@@ -82,32 +82,46 @@ jobs:
         working-directory: deepseek-harness
         run: pnpm run build
 
+      # 动态查找并打包构建产物（自动适应目录结构）
       - name: Package artifacts
         run: |
-          mkdir -p release
-          cd deepseek-harness/packages/dsh
-          # 自动查找常见构建输出目录，避免 hard-coded dist 不存在的问题
-          ARTIFACT_DIR=""
-          for dir in dist build lib out bin; do
-            if [ -d "$dir" ]; then
-              ARTIFACT_DIR="$dir"
-              break
-            fi
-          done
-          if [ -z "$ARTIFACT_DIR" ]; then
-            echo "No common build directory found, listing current directory:"
-            ls -la
-            echo "Falling back to copying all files except node_modules, src, test"
-            mkdir -p ../../../release
-            tar -cf - --exclude=node_modules --exclude=src --exclude=test --exclude=__tests__ . | tar -xf - -C ../../../release
-            cp package.json ../../../release/ 2>/dev/null || true
+          cd deepseek-harness
+          echo "===== 当前目录: $(pwd) ====="
+          echo "===== 顶层目录结构 ====="
+          ls -la
+          echo "===== 查找所有构建输出目录 (dist/build/lib/out) ====="
+          # 查找 packages 目录下所有可能的构建输出目录
+          BUILD_DIRS=$(find packages -type d \( -name dist -o -name build -o -name lib -o -name out \) -not -path "*/node_modules/*" 2>/dev/null)
+          if [ -n "$BUILD_DIRS" ]; then
+            echo "找到以下构建目录:"
+            echo "$BUILD_DIRS"
+            # 创建 release 目录
+            mkdir -p ../release
+            # 遍历每个构建目录，将其内容复制到 release 中，保持包名结构
+            echo "$BUILD_DIRS" | while read -r dir; do
+              # 获取包名（构建目录的上一级目录名）
+              pkg_dir=$(dirname "$dir")
+              pkg_name=$(basename "$pkg_dir")
+              echo "处理包: $pkg_name  (来自 $dir)"
+              mkdir -p "../release/$pkg_name"
+              # 复制构建产物
+              cp -r "$dir"/* "../release/$pkg_name/"
+              # 如果包的 package.json 存在，则复制
+              if [ -f "$pkg_dir/package.json" ]; then
+                cp "$pkg_dir/package.json" "../release/$pkg_name/"
+              fi
+            done
+            echo "已将所有构建产物复制到 release 目录。"
           else
-            echo "Found build artifact directory: $ARTIFACT_DIR"
-            mkdir -p ../../../release
-            cp -r "$ARTIFACT_DIR"/* ../../../release/
-            cp package.json ../../../release/
+            echo "未找到常见构建目录，回退打包整个项目（排除 node_modules 等）"
+            mkdir -p ../release
+            # 复制整个项目，排除不必要的目录
+            tar -cf - --exclude=node_modules --exclude=.git --exclude=release . | tar -xf - -C ../release
           fi
-          cd ../../..
+          cd ..
+          echo "===== release 目录内容 ====="
+          ls -la release/
+          echo "===== 创建最终 tar 包 ====="
           tar -czvf deepseek-harness-arm64.tar.gz -C release .
 
       - name: Upload to Release
