@@ -3,7 +3,7 @@ name: Cross-Compile DeepSeek Harness for ARM64
 on:
   push:
     tags:
-      - 'v*'          # 推送标签时自动触发
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag_name:
@@ -61,7 +61,7 @@ jobs:
           walk('.');
           NODE
 
-      # 2. 删除锁文件，让 pnpm 重新生成
+      # 2. 删除锁文件
       - name: Remove lockfile
         working-directory: deepseek-harness
         run: rm -f pnpm-lock.yaml
@@ -90,20 +90,36 @@ jobs:
         working-directory: deepseek-harness
         run: pnpm run build
 
-      # 6. 打包官方构建产物：packages/dsh/dist
+      # 6. 灵活打包：自动查找所有构建输出目录
       - name: Package artifacts
         run: |
           cd deepseek-harness
-          if [ ! -d "packages/dsh/dist" ]; then
-            echo "错误：未找到 packages/dsh/dist，构建可能未成功。"
-            echo "请检查构建日志。"
+          echo "===== 查找所有构建输出目录 (dist/build/lib/out) ====="
+          BUILD_DIRS=$(find packages -type d \( -name dist -o -name build -o -name lib -o -name out \) -not -path "*/node_modules/*" 2>/dev/null)
+          if [ -z "$BUILD_DIRS" ]; then
+            echo "错误：未找到任何构建输出目录，请检查构建日志。"
             exit 1
           fi
-          echo "构建产物存在，准备打包。"
+          echo "找到以下构建目录："
+          echo "$BUILD_DIRS"
           mkdir -p ../release
-          cp -r packages/dsh/dist/* ../release/
-          cp packages/dsh/package.json ../release/
+          echo "$BUILD_DIRS" | while IFS= read -r dir; do
+            # 获取包目录（构建目录的上一级）
+            pkg_dir=$(dirname "$dir")
+            pkg_name=$(basename "$pkg_dir")
+            echo "处理包: $pkg_name (来自 $dir)"
+            mkdir -p "../release/$pkg_name"
+            # 复制构建产物
+            cp -r "$dir"/* "../release/$pkg_name/"
+            # 如果存在 package.json，则复制
+            if [ -f "$pkg_dir/package.json" ]; then
+              cp "$pkg_dir/package.json" "../release/$pkg_name/"
+            fi
+          done
           cd ..
+          echo "===== release 目录内容 ====="
+          ls -la release/
+          echo "===== 创建最终 tar 包 ====="
           tar -czvf deepseek-harness-arm64.tar.gz -C release .
 
       # 7a. 推送标签自动触发时，使用 softprops/action-gh-release 发布
@@ -126,7 +142,6 @@ jobs:
           echo "目标仓库: $GITHUB_REPOSITORY"
           echo "目标分支: $GITHUB_REF_NAME"
           
-          # 检查 Release 是否已存在
           if gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release 已存在，上传资产..."
             gh release upload "$TAG_NAME" ./deepseek-harness-arm64.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
