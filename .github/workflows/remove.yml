@@ -28,18 +28,9 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
 
-      - name: Patch node-pty dependency
+      - name: Patch node-pty references
         working-directory: deepseek-harness
         run: |
-          # Replace dependency in package.json files
-          find . -name "package.json" -type f -exec sed -i 's/"node-pty":\s*"[^"]*"/"@homebridge\/node-pty-prebuilt-multiarch": "^0.14.1"/g' {} \;
-          # Replace require in source files
-          find . -type f \( -name "*.js" -o -name "*.ts" \) -exec sed -i 's/require("node-pty")/require("@homebridge\/node-pty-prebuilt-multiarch")/g' {} \;
-
-      - name: Remove patchedDependencies from JSON files
-        working-directory: deepseek-harness
-        run: |
-          # Use a Node script to recursively delete patchedDependencies from all package.json
           node <<'NODE'
           const fs = require('fs');
           const path = require('path');
@@ -48,7 +39,54 @@ jobs:
             for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
               const full = path.join(dir, entry.name);
               if (entry.isDirectory()) {
-                walk(full);
+                if (entry.name !== 'node_modules' && entry.name !== '.git') walk(full);
+              } else {
+                const ext = path.extname(entry.name).toLowerCase();
+                if (['.js', '.ts', '.mjs', '.cjs', '.jsx', '.tsx', '.json'].includes(ext)) {
+                  let content = fs.readFileSync(full, 'utf8');
+                  // 替换所有 require/import 中的 'node-pty' 或 "node-pty"
+                  content = content.replace(/["']node-pty["']/g, '"@homebridge/node-pty-prebuilt-multiarch"');
+                  // 如果是 package.json，还需要正确替换依赖项
+                  if (entry.name === 'package.json') {
+                    try {
+                      const json = JSON.parse(content);
+                      const replaceDep = (obj) => {
+                        if (obj && typeof obj === 'object') {
+                          if (obj['node-pty'] !== undefined) {
+                            obj['@homebridge/node-pty-prebuilt-multiarch'] = '^0.14.1';
+                            delete obj['node-pty'];
+                          }
+                          for (const key of Object.keys(obj)) {
+                            if (typeof obj[key] === 'object') replaceDep(obj[key]);
+                          }
+                        }
+                      };
+                      replaceDep(json);
+                      content = JSON.stringify(json, null, 2);
+                    } catch (e) {
+                      console.log(`Could not parse ${full}: ${e.message}`);
+                    }
+                  }
+                  fs.writeFileSync(full, content);
+                }
+              }
+            }
+          }
+          walk('.');
+          NODE
+
+      - name: Remove patchedDependencies from JSON files
+        working-directory: deepseek-harness
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          function walk(dir) {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const full = path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                if (entry.name !== 'node_modules' && entry.name !== '.git') walk(full);
               } else if (entry.name === 'package.json') {
                 const data = JSON.parse(fs.readFileSync(full, 'utf8'));
                 const removeField = (obj) => {
