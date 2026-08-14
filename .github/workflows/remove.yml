@@ -11,8 +11,7 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-latest          # 若您的 GitHub 账户支持 ARM64 runner，可改为 ubuntu-24.04-arm 并删除架构配置步骤
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,6 +27,7 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
 
+      # 步骤1：精准替换所有 package.json 中的依赖
       - name: Replace node-pty in package.json files
         working-directory: deepseek-harness
         run: |
@@ -41,53 +41,68 @@ jobs:
               if (entry.isDirectory()) {
                 if (entry.name !== 'node_modules' && entry.name !== '.git') walk(full);
               } else if (entry.name === 'package.json') {
-                let data = JSON.parse(fs.readFileSync(full, 'utf8'));
-                const replaceDep = (obj) => {
-                  if (obj && typeof obj === 'object') {
-                    if (obj['node-pty'] !== undefined) {
-                      obj['@homebridge/node-pty-prebuilt-multiarch'] = '^0.14.1';
-                      delete obj['node-pty'];
-                    }
-                    // 递归处理所有对象字段
-                    for (const key of Object.keys(obj)) {
-                      if (typeof obj[key] === 'object') replaceDep(obj[key]);
-                    }
+                const filePath = full;
+                let data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
+                // 递归替换所有依赖对象中的 node-pty
+                const replaceInObject = (obj) => {
+                  if (!obj || typeof obj !== 'object') return;
+                  if (obj['node-pty'] !== undefined) {
+                    obj['@homebridge/node-pty-prebuilt-multiarch'] = '^0.14.1'; // 强制正确版本
+                    delete obj['node-pty'];
+                  }
+                  // 递归处理所有值
+                  for (const key of Object.keys(obj)) {
+                    if (typeof obj[key] === 'object') replaceInObject(obj[key]);
                   }
                 };
-                replaceDep(data);
-                // 同时删除所有 patchedDependencies
-                const removeField = (obj) => {
-                  if (obj && typeof obj === 'object') {
-                    delete obj.patchedDependencies;
-                    for (const key of Object.keys(obj)) {
-                      if (typeof obj[key] === 'object') removeField(obj[key]);
-                    }
+                replaceInObject(data);
+
+                // 递归删除所有 patchedDependencies
+                const removePatches = (obj) => {
+                  if (!obj || typeof obj !== 'object') return;
+                  delete obj.patchedDependencies;
+                  for (const key of Object.keys(obj)) {
+                    if (typeof obj[key] === 'object') removePatches(obj[key]);
                   }
                 };
-                removeField(data);
-                fs.writeFileSync(full, JSON.stringify(data, null, 2));
+                removePatches(data);
+
+                fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+                console.log(`Processed ${filePath}`);
               }
             }
           }
           walk('.');
           NODE
 
-      - name: Replace node-pty in source files (js/ts/mjs/cjs)
+      # 步骤2：替换所有源码中的引用
+      - name: Replace node-pty in source files
         working-directory: deepseek-harness
         run: |
-          find . -type f \( -name "*.js" -o -name "*.ts" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.jsx" -o -name "*.tsx" \) -not -path "*/node_modules/*" -exec sed -i 's/require("node-pty")/require("@homebridge\/node-pty-prebuilt-multiarch")/g; s/require('"'"'node-pty'"'"')/require("@homebridge\/node-pty-prebuilt-multiarch")/g; s/import "node-pty"/import "@homebridge\/node-pty-prebuilt-multiarch"/g; s/import '"'"'node-pty'"'"'/import "@homebridge\/node-pty-prebuilt-multiarch"/g; s/from "node-pty"/from "@homebridge\/node-pty-prebuilt-multiarch"/g; s/from '"'"'node-pty'"'"'/from "@homebridge\/node-pty-prebuilt-multiarch"/g' {} \;
+          find . -type f \( -name "*.js" -o -name "*.ts" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.jsx" -o -name "*.tsx" \) -not -path "*/node_modules/*" -print0 |
+          xargs -0 sed -i \
+            -e 's/require("node-pty")/require("@homebridge\/node-pty-prebuilt-multiarch")/g' \
+            -e "s/require('node-pty')/require('@homebridge\/node-pty-prebuilt-multiarch')/g" \
+            -e 's/import "node-pty"/import "@homebridge\/node-pty-prebuilt-multiarch"/g' \
+            -e "s/import 'node-pty'/import '@homebridge\/node-pty-prebuilt-multiarch'/g" \
+            -e 's/from "node-pty"/from "@homebridge\/node-pty-prebuilt-multiarch"/g' \
+            -e "s/from 'node-pty'/from '@homebridge\/node-pty-prebuilt-multiarch'/g"
 
-      - name: Remove patchedDependencies from pnpm-workspace.yaml if exists
+      # 步骤3：删除 pnpm-workspace.yaml 中的补丁定义
+      - name: Remove patchedDependencies from pnpm-workspace.yaml
         working-directory: deepseek-harness
         run: |
           if [ -f pnpm-workspace.yaml ]; then
             sed -i '/^[[:space:]]*patchedDependencies:/,/^[^[:space:]]/d' pnpm-workspace.yaml
           fi
 
+      # 步骤4：删除锁文件
       - name: Remove lockfile
         working-directory: deepseek-harness
         run: rm -f pnpm-lock.yaml
 
+      # 步骤5：配置 ARM64 目标
       - name: Configure ARM64 target
         working-directory: deepseek-harness
         run: |
@@ -96,6 +111,31 @@ jobs:
           echo "npm_config_target_arch=arm64" >> .npmrc
           echo "npm_config_platform=linux" >> .npmrc
 
+      # 步骤6：验证无残留 node-pty 或错误版本（关键！）
+      - name: Verify replacement
+        working-directory: deepseek-harness
+        run: |
+          echo "Checking for remaining node-pty references..."
+          if grep -r "node-pty" --include="package.json" .; then
+            echo "ERROR: Found 'node-pty' in package.json files above"
+            exit 1
+          fi
+          echo "Checking for patchedDependencies..."
+          if grep -r "patchedDependencies" --include="package.json" .; then
+            echo "ERROR: Found patchedDependencies in package.json files above"
+            exit 1
+          fi
+          echo "Checking that @homebridge/node-pty-prebuilt-multiarch version is ^0.14.1..."
+          # 只列出所有 package.json 中的新包版本，确认没有 ^1.1.0
+          grep -r '"@homebridge/node-pty-prebuilt-multiarch"' --include="package.json" . | while read -r line ; do
+            if ! echo "$line" | grep -q '\^0\.14\.1'; then
+              echo "ERROR: Found wrong version: $line"
+              exit 1
+            fi
+          done
+          echo "All checks passed."
+
+      # 步骤7：安装依赖
       - name: Install dependencies
         working-directory: deepseek-harness
         env:
@@ -104,10 +144,12 @@ jobs:
           npm_config_platform: linux
         run: pnpm install --no-frozen-lockfile
 
+      # 步骤8：构建
       - name: Build project
         working-directory: deepseek-harness
         run: pnpm run build
 
+      # 步骤9：打包
       - name: Package artifacts
         run: |
           mkdir -p release
@@ -115,6 +157,7 @@ jobs:
           cp deepseek-harness/packages/dsh/package.json release/
           tar -czvf deepseek-harness-arm64.tar.gz -C release .
 
+      # 步骤10：上传到 Release
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
