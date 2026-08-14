@@ -47,6 +47,11 @@ jobs:
       run: |
         find . -name "package.json" -exec sh -c 'jq "del(.patchedDependencies)" "$0" > "$0.tmp" && mv "$0.tmp" "$0"' {} \;
 
+    # 新增步骤：删除旧的锁文件，避免残留未使用的补丁记录
+    - name: Remove pnpm-lock.yaml to clean unused patches
+      working-directory: ./deepseek-harness
+      run: rm -f pnpm-lock.yaml
+
     - name: Install dependencies (allow lockfile update)
       working-directory: ./deepseek-harness
       run: |
