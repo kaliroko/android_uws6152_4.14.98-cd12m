@@ -5,13 +5,18 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: '版本号 (例如 v1.0.0)'
+        required: true
+        default: 'v0.0.1'
 
 permissions:
   contents: write
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest          # 如果您的 GitHub 账户支持 ARM64 runner，可改为 ubuntu-24.04-arm 并删除 ARM64 配置步骤
+    runs-on: ubuntu-latest          # 如需原生 ARM64 构建，可改为 ubuntu-24.04-arm 并删除 ARM64 配置步骤
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -90,23 +95,17 @@ jobs:
           echo "===== 顶层目录结构 ====="
           ls -la
           echo "===== 查找所有构建输出目录 (dist/build/lib/out) ====="
-          # 查找 packages 目录下所有可能的构建输出目录
           BUILD_DIRS=$(find packages -type d \( -name dist -o -name build -o -name lib -o -name out \) -not -path "*/node_modules/*" 2>/dev/null)
           if [ -n "$BUILD_DIRS" ]; then
             echo "找到以下构建目录:"
             echo "$BUILD_DIRS"
-            # 创建 release 目录
             mkdir -p ../release
-            # 遍历每个构建目录，将其内容复制到 release 中，保持包名结构
             echo "$BUILD_DIRS" | while read -r dir; do
-              # 获取包名（构建目录的上一级目录名）
               pkg_dir=$(dirname "$dir")
               pkg_name=$(basename "$pkg_dir")
               echo "处理包: $pkg_name  (来自 $dir)"
               mkdir -p "../release/$pkg_name"
-              # 复制构建产物
               cp -r "$dir"/* "../release/$pkg_name/"
-              # 如果包的 package.json 存在，则复制
               if [ -f "$pkg_dir/package.json" ]; then
                 cp "$pkg_dir/package.json" "../release/$pkg_name/"
               fi
@@ -115,7 +114,6 @@ jobs:
           else
             echo "未找到常见构建目录，回退打包整个项目（排除 node_modules 等）"
             mkdir -p ../release
-            # 复制整个项目，排除不必要的目录
             tar -cf - --exclude=node_modules --exclude=.git --exclude=release . | tar -xf - -C ../release
           fi
           cd ..
@@ -124,9 +122,38 @@ jobs:
           echo "===== 创建最终 tar 包 ====="
           tar -czvf deepseek-harness-arm64.tar.gz -C release .
 
-      - name: Upload to Release
+      # 发布方式一：推送标签自动触发时使用 softprops/action-gh-release
+      - name: Upload to Release (Tag Push)
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: deepseek-harness-arm64.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 发布方式二：手动触发时使用 GitHub CLI 创建标签并发布
+      - name: Create Release and Upload (Manual)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.inputs.tag_name }}
+        run: |
+          # 确保标签存在，如果不存在则创建（基于当前默认分支最新提交）
+          if ! git rev-parse "refs/tags/$TAG_NAME" >/dev/null 2>&1; then
+            echo "Creating tag $TAG_NAME"
+            git tag "$TAG_NAME"
+            git push origin "$TAG_NAME"
+          else
+            echo "Tag $TAG_NAME already exists"
+          fi
+          # 使用 GitHub CLI 创建/更新 Release 并上传资产
+          gh release create "$TAG_NAME" ./deepseek-harness-arm64.tar.gz \
+            --title "$TAG_NAME" \
+            --notes "Release $TAG_NAME (ARM64 build)" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA"
+          # 如果 Release 已存在，则更新资产
+          if [ $? -ne 0 ]; then
+            echo "Release might already exist, trying to upload asset..."
+            gh release upload "$TAG_NAME" ./deepseek-harness-arm64.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+          fi
