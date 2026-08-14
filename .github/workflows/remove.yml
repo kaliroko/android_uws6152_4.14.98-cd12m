@@ -3,7 +3,7 @@ name: Cross-Compile DeepSeek Harness for ARM64
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*'          # 推送标签时自动触发
   workflow_dispatch:
     inputs:
       tag_name:
@@ -138,22 +138,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ github.event.inputs.tag_name }}
         run: |
-          # 确保标签存在，如果不存在则创建（基于当前默认分支最新提交）
-          if ! git rev-parse "refs/tags/$TAG_NAME" >/dev/null 2>&1; then
-            echo "Creating tag $TAG_NAME"
-            git tag "$TAG_NAME"
-            git push origin "$TAG_NAME"
-          else
-            echo "Tag $TAG_NAME already exists"
-          fi
-          # 使用 GitHub CLI 创建/更新 Release 并上传资产
-          gh release create "$TAG_NAME" ./deepseek-harness-arm64.tar.gz \
-            --title "$TAG_NAME" \
-            --notes "Release $TAG_NAME (ARM64 build)" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA"
-          # 如果 Release 已存在，则更新资产
-          if [ $? -ne 0 ]; then
-            echo "Release might already exist, trying to upload asset..."
+          echo "使用标签: $TAG_NAME"
+          echo "目标仓库: $GITHUB_REPOSITORY"
+          echo "目标分支: $GITHUB_REF_NAME"
+          
+          # 检查 Release 是否已存在
+          if gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release 已存在，上传资产..."
             gh release upload "$TAG_NAME" ./deepseek-harness-arm64.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            echo "创建新 Release 并上传资产..."
+            gh release create "$TAG_NAME" ./deepseek-harness-arm64.tar.gz \
+              --title "$TAG_NAME" \
+              --notes "Release $TAG_NAME (ARM64 build)" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_REF_NAME"
           fi
