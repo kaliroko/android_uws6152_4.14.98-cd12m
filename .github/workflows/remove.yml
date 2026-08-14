@@ -11,8 +11,7 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-latest          # 如需原生 ARM64 构建，可改为 ubuntu-24.04-arm 并移除 ARM64 配置步骤
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,24 +27,12 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
 
-      - name: Add override and remove patches
+      - name: Remove patchedDependencies from all package.json
         working-directory: deepseek-harness
         run: |
           node <<'NODE'
           const fs = require('fs');
           const path = require('path');
-
-          // 1. 处理根 package.json：添加 pnpm.overrides 并删除 patchedDependencies
-          const rootPkgPath = 'package.json';
-          let rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, 'utf8'));
-          rootPkg.pnpm = rootPkg.pnpm || {};
-          rootPkg.pnpm.overrides = rootPkg.pnpm.overrides || {};
-          rootPkg.pnpm.overrides['node-pty'] = 'npm:@homebridge/node-pty-prebuilt-multiarch@^0.14.1';
-          delete rootPkg.patchedDependencies;
-          if (rootPkg.pnpm) delete rootPkg.pnpm.patchedDependencies;
-          fs.writeFileSync(rootPkgPath, JSON.stringify(rootPkg, null, 2));
-
-          // 2. 递归删除所有 package.json 中的 patchedDependencies（任意层级）
           function walk(dir) {
             for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
               const full = path.join(dir, entry.name);
@@ -66,20 +53,22 @@ jobs:
             }
           }
           walk('.');
-          console.log('Override added and patches removed.');
           NODE
 
       - name: Remove lockfile
         working-directory: deepseek-harness
         run: rm -f pnpm-lock.yaml
 
-      - name: Configure ARM64 target
+      - name: Configure pnpm for ARM64 and node-pty override
         working-directory: deepseek-harness
         run: |
+          # 设置 ARM64 架构
           echo "supportedArchitectures[linux][arm64]=true" >> .npmrc
           echo "npm_config_arch=arm64" >> .npmrc
           echo "npm_config_target_arch=arm64" >> .npmrc
           echo "npm_config_platform=linux" >> .npmrc
+          # 使用 overrides 将 node-pty 替换为预编译多架构包（解决 ERR_PNPM_UNUSED_PATCH 和版本问题）
+          echo "overrides[node-pty]=npm:@homebridge/node-pty-prebuilt-multiarch@^0.14.1" >> .npmrc
 
       - name: Install dependencies
         working-directory: deepseek-harness
@@ -96,8 +85,29 @@ jobs:
       - name: Package artifacts
         run: |
           mkdir -p release
-          cp -r deepseek-harness/packages/dsh/dist release/
-          cp deepseek-harness/packages/dsh/package.json release/
+          cd deepseek-harness/packages/dsh
+          # 自动查找常见构建输出目录，避免 hard-coded dist 不存在的问题
+          ARTIFACT_DIR=""
+          for dir in dist build lib out bin; do
+            if [ -d "$dir" ]; then
+              ARTIFACT_DIR="$dir"
+              break
+            fi
+          done
+          if [ -z "$ARTIFACT_DIR" ]; then
+            echo "No common build directory found, listing current directory:"
+            ls -la
+            echo "Falling back to copying all files except node_modules, src, test"
+            mkdir -p ../../../release
+            tar -cf - --exclude=node_modules --exclude=src --exclude=test --exclude=__tests__ . | tar -xf - -C ../../../release
+            cp package.json ../../../release/ 2>/dev/null || true
+          else
+            echo "Found build artifact directory: $ARTIFACT_DIR"
+            mkdir -p ../../../release
+            cp -r "$ARTIFACT_DIR"/* ../../../release/
+            cp package.json ../../../release/
+          fi
+          cd ../../..
           tar -czvf deepseek-harness-arm64.tar.gz -C release .
 
       - name: Upload to Release
