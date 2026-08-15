@@ -32,7 +32,6 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
 
-      # 1. 递归删除所有 package.json 中任意位置的 patchedDependencies 字段
       - name: Remove patchedDependencies from all package.json
         working-directory: deepseek-harness
         run: |
@@ -61,12 +60,10 @@ jobs:
           walk('.');
           NODE
 
-      # 2. 删除锁文件
       - name: Remove lockfile
         working-directory: deepseek-harness
         run: rm -f pnpm-lock.yaml
 
-      # 3. 配置 ARM64 目标，并使用 pnpm overrides 替换 node-pty
       - name: Configure pnpm for ARM64 and node-pty override
         working-directory: deepseek-harness
         run: |
@@ -76,7 +73,6 @@ jobs:
           echo "npm_config_platform=linux" >> .npmrc
           echo "overrides[node-pty]=npm:@homebridge/node-pty-prebuilt-multiarch@^0.14.1" >> .npmrc
 
-      # 4. 安装依赖（包括开发依赖用于构建）
       - name: Install dependencies
         working-directory: deepseek-harness
         env:
@@ -85,12 +81,10 @@ jobs:
           npm_config_platform: linux
         run: pnpm install --no-frozen-lockfile
 
-      # 5. 构建
       - name: Build project
         working-directory: deepseek-harness
         run: pnpm run build
 
-      # 6. 使用 pnpm deploy 生成自包含部署目录（包含生产依赖）
       - name: Deploy dsh package with production dependencies
         working-directory: deepseek-harness
         run: |
@@ -102,7 +96,30 @@ jobs:
           echo "===== 递归查找可能的入口文件 ====="
           find ./deploy/dsh -maxdepth 3 -type f \( -name "index.js" -o -name "main.js" -o -name "cli.js" \) | head -n 20
 
-      # 7. 打包整个部署目录（完整自包含）
+      # 新增步骤：补全所有缺失的 @deepseek-ai 内部包
+      - name: Copy missing internal workspace packages
+        working-directory: deepseek-harness
+        run: |
+          echo "补全内部 @deepseek-ai 包..."
+          mkdir -p deploy/dsh/node_modules/@deepseek-ai
+          for pkg_dir in $(find packages -maxdepth 3 -name package.json -exec dirname {} \;); do
+            pkg_name=$(node -p "require('./$pkg_dir/package.json').name" 2>/dev/null)
+            if [[ "$pkg_name" == @deepseek-ai/* ]]; then
+              target="deploy/dsh/node_modules/$pkg_name"
+              if [ ! -e "$target" ]; then
+                echo "复制缺失包: $pkg_name (来自 $pkg_dir)"
+                mkdir -p "$(dirname "$target")"
+                # 使用 -rL 复制并取消符号链接，确保真实文件
+                cp -rL "$pkg_dir" "$target"
+              else
+                echo "已存在: $pkg_name"
+              fi
+            fi
+          done
+          echo "补全完成。"
+          echo "===== 检查 node_modules/@deepseek-ai 内容 ====="
+          ls -la deploy/dsh/node_modules/@deepseek-ai
+
       - name: Package full self-contained artifacts
         run: |
           cd deepseek-harness/deploy/dsh
@@ -118,7 +135,6 @@ jobs:
           echo "===== 压缩包内容预览 ====="
           tar -tzf deepseek-harness-arm64-full.tar.gz | head -20
 
-      # 8a. 推送标签自动触发时，使用 softprops/action-gh-release 发布
       - name: Upload to Release (Tag Push)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -127,7 +143,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 8b. 手动触发时，使用 GitHub CLI 创建标签并发布
       - name: Create Release and Upload (Manual)
         if: github.event_name == 'workflow_dispatch'
         env:
