@@ -96,7 +96,6 @@ jobs:
           echo "===== 递归查找可能的入口文件 ====="
           find ./deploy/dsh -maxdepth 3 -type f \( -name "index.js" -o -name "main.js" -o -name "cli.js" \) | head -n 20
 
-      # 新增步骤：补全所有缺失的 @deepseek-ai 内部包（排除 node_modules，避免符号链接循环）
       - name: Copy missing internal workspace packages
         working-directory: deepseek-harness
         run: |
@@ -108,7 +107,7 @@ jobs:
               target="deploy/dsh/node_modules/$pkg_name"
               if [ ! -e "$target" ]; then
                 echo "复制缺失包: $pkg_name (来自 $pkg_dir)"
-                mkdir -p "$(dirname "$target")"
+                mkdir -p "$target"   # 关键：创建目标目录
                 # 使用 tar 复制，排除 node_modules，不跟随符号链接，避免循环
                 tar -cf - --exclude=node_modules --exclude=.git -C "$pkg_dir" . | tar -xf - -C "$target"
               else
