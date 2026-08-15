@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest          # 如需原生 ARM64 构建，可改为 ubuntu-24.04-arm 并删除 ARM64 配置步骤
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -90,39 +90,95 @@ jobs:
         working-directory: deepseek-harness
         run: pnpm run build
 
-      # 6. 灵活打包：自动查找所有构建输出目录
+      # ========== 6. 调试：列出所有可能的构建目录 ==========
+      - name: Debug build output
+        working-directory: deepseek-harness
+        run: |
+          echo "=== 查找所有构建目录 (dist/build/lib/out) ==="
+          find packages -type d \( -name dist -o -name build -o -name lib -o -name out \) -not -path "*/node_modules/*" | tee /tmp/build_dirs.txt || echo "未找到任何构建目录"
+
+      # ========== 7. 智能打包：全局搜索并选择主包 ==========
       - name: Package artifacts
         run: |
           cd deepseek-harness
-          echo "===== 查找所有构建输出目录 (dist/build/lib/out) ====="
-          BUILD_DIRS=$(find packages -type d \( -name dist -o -name build -o -name lib -o -name out \) -not -path "*/node_modules/*" 2>/dev/null)
-          if [ -z "$BUILD_DIRS" ]; then
-            echo "错误：未找到任何构建输出目录，请检查构建日志。"
-            exit 1
-          fi
-          echo "找到以下构建目录："
-          echo "$BUILD_DIRS"
-          mkdir -p ../release
-          echo "$BUILD_DIRS" | while IFS= read -r dir; do
-            # 获取包目录（构建目录的上一级）
-            pkg_dir=$(dirname "$dir")
-            pkg_name=$(basename "$pkg_dir")
-            echo "处理包: $pkg_name (来自 $dir)"
-            mkdir -p "../release/$pkg_name"
-            # 复制构建产物
-            cp -r "$dir"/* "../release/$pkg_name/"
-            # 如果存在 package.json，则复制
-            if [ -f "$pkg_dir/package.json" ]; then
-              cp "$pkg_dir/package.json" "../release/$pkg_name/"
+          # 定义候选目录名
+          CANDIDATES="dist build lib out"
+          FOUND_DIR=""
+          # 优先级1：检查 packages/dsh/dist (最常见)
+          for d in $CANDIDATES; do
+            if [ -d "packages/dsh/$d" ]; then
+              FOUND_DIR="packages/dsh/$d"
+              echo "✅ 优先路径命中: $FOUND_DIR"
+              break
             fi
           done
+          # 如果没找到，则全局搜索所有符合条件的目录
+          if [ -z "$FOUND_DIR" ]; then
+            echo "⚠️ 优先路径未找到，开始全局搜索..."
+            # 收集所有构建目录
+            ALL_DIRS=$(find packages -type d \( -name dist -o -name build -o -name lib -o -name out \) -not -path "*/node_modules/*" 2>/dev/null)
+            if [ -n "$ALL_DIRS" ]; then
+              # 按优先级排序：优先路径中包含 dsh，其次包含 index.js，最后任意
+              # 先提取包含 dsh 的目录
+              DSH_DIRS=$(echo "$ALL_DIRS" | grep -E "/dsh/" || true)
+              if [ -n "$DSH_DIRS" ]; then
+                # 从中选择包含 index.js 的
+                for dir in $DSH_DIRS; do
+                  if [ -f "$dir/index.js" ]; then
+                    FOUND_DIR="$dir"
+                    echo "✅ 全局搜索命中: $FOUND_DIR (包含 index.js 且路径含 dsh)"
+                    break
+                  fi
+                done
+                # 如果没有 index.js，就取第一个 dsh 路径
+                if [ -z "$FOUND_DIR" ]; then
+                  FOUND_DIR=$(echo "$DSH_DIRS" | head -n1)
+                  echo "✅ 全局搜索命中: $FOUND_DIR (路径含 dsh，但无 index.js)"
+                fi
+              else
+                # 没有 dsh 路径，则找任意包含 index.js 的
+                for dir in $ALL_DIRS; do
+                  if [ -f "$dir/index.js" ]; then
+                    FOUND_DIR="$dir"
+                    echo "✅ 全局搜索命中: $FOUND_DIR (包含 index.js)"
+                    break
+                  fi
+                done
+                if [ -z "$FOUND_DIR" ]; then
+                  # 最后回退到第一个
+                  FOUND_DIR=$(echo "$ALL_DIRS" | head -n1)
+                  echo "⚠️ 全局搜索回退到: $FOUND_DIR (无 index.js，但任意)"
+                fi
+              fi
+            fi
+          fi
+          # 最终检查
+          if [ -z "$FOUND_DIR" ]; then
+            echo "❌ 错误：未找到任何构建目录，请检查构建日志。"
+            exit 1
+          fi
+          echo "选择的构建目录: $FOUND_DIR"
+          # 获取包目录（上一级）
+          PKG_DIR=$(dirname "$FOUND_DIR")
+          PKG_NAME=$(basename "$PKG_DIR")
+          echo "包名: $PKG_NAME"
+          mkdir -p ../release
+          # 复制构建产物到 release/dist（解压后直接得到 dist 目录）
+          cp -r "$FOUND_DIR" ../release/dist
+          # 复制对应的 package.json（如果有）
+          if [ -f "$PKG_DIR/package.json" ]; then
+            cp "$PKG_DIR/package.json" ../release/
+          else
+            echo "警告：未找到 package.json，将尝试复制根目录的"
+            cp package.json ../release/ 2>/dev/null || true
+          fi
           cd ..
           echo "===== release 目录内容 ====="
           ls -la release/
           echo "===== 创建最终 tar 包 ====="
           tar -czvf deepseek-harness-arm64.tar.gz -C release .
 
-      # 7a. 推送标签自动触发时，使用 softprops/action-gh-release 发布
+      # 8a. 推送标签自动触发时，使用 softprops/action-gh-release 发布
       - name: Upload to Release (Tag Push)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -131,7 +187,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 7b. 手动触发时，使用 GitHub CLI 创建标签并发布
+      # 8b. 手动触发时，使用 GitHub CLI 创建标签并发布
       - name: Create Release and Upload (Manual)
         if: github.event_name == 'workflow_dispatch'
         env:
